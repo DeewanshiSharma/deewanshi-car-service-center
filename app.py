@@ -1,11 +1,10 @@
-# app.py - DEEWANSHI CAR CENTER VOICE ASSISTANT - FULLY FIXED
+# app.py - DEEWANSHI CAR CENTER VOICE ASSISTANT - FULLY FIXED FOR CLOUD
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime, timedelta
 import dateparser
-import pyttsx3
-import os  # ADDED: For PORT environment variable
+import os  # For PORT environment variable
 
 app = Flask(__name__)
 CORS(app)  # Critical: Allows frontend to talk to backend
@@ -30,21 +29,12 @@ def init_db():
 
 init_db()
 
-# TTS Function
+# TTS Function - UPDATED: Removed pyttsx3 for cloud compatibility
 def speak(text):
     print(f"Assistant: {text}")
-    try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 160)
-        voices = engine.getProperty('voices')
-        for v in voices:
-            if 'zira' in v.name.lower() or 'india' in v.name.lower() or 'female' in v.name.lower():
-                engine.setProperty('voice', v.id)
-                break
-        engine.say(text)
-        engine.runAndWait()
-    except:
-        pass
+    # Speech synthesis will be handled by the browser
+    # This function now only logs the text for the frontend to speak
+    return text
 
 # Normalize Vehicle Number
 def normalize_vehicle_no(text):
@@ -118,7 +108,7 @@ def index():
 def start():
     session.reset()
     msg = "Good morning! Welcome to Deewanshi Car Center. May I know your name please?"
-    speak(msg)
+    speak(msg)  # This will now be handled by browser TTS
     session.stage = "ask_name"
     return jsonify({
         "messages": [msg],
@@ -132,7 +122,7 @@ def listen():
     done = False
 
     def say(text):
-        speak(text)
+        speak(text)  # This will now be handled by browser TTS
         messages.append(text)
 
     # Name Flow
@@ -241,8 +231,6 @@ def listen():
     })
 
 # ADMIN: Fixed route
-# ADMIN: FIXED — Now returns JSON (for instant download) + keeps old HTML fallback
-# ADMIN: 100% WORKING — ALWAYS RETURNS JSON
 @app.route('/appointments')
 def appointments():
     try:
@@ -261,19 +249,23 @@ def appointments():
                 "time": time
             })
         
-        # This line makes download work EVERY TIME
         return jsonify(data)
     
     except Exception as e:
         print("DB Error:", e)
-        return jsonify([])  # Return empty list if error
+        return jsonify([])
+
+# Health check endpoint for Render
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy", "service": "Deewanshi Car Center Voice Assistant"})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("\n" + "="*60)
     print("   DEEWANSHI CAR CENTER VOICE ASSISTANT - NOW FULLY WORKING!")
+    print("   TTS: Browser-based (Cloud Compatible)")
     print(f"   Running on port: {port}")
     print("="*60 + "\n")
     
-    # Explicitly bind to 0.0.0.0 with the port
     app.run(host='0.0.0.0', port=port, debug=False)
