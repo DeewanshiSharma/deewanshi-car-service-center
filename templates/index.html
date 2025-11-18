@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deewanshi Car Center - Voice Assistant</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a1a;
+            --primary: #00f2ff;
+            --secondary: #8e2de2;
+            --text: #e0e0e0;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { 
+            background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; 
+            overflow: hidden; height: 100vh; 
+        }
+        canvas { position: fixed; top:0; left:0; z-index:1; }
+        .container { position: relative; z-index:10; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+        
+        #conversation-log {
+            width: 90%; max-width: 850px; height: 60vh; overflow-y: auto; margin-bottom: 25px;
+            padding: 20px; background: rgba(10,10,30,0.8); border-radius: 20px; 
+            border: 1px solid rgba(0,242,255,0.4); box-shadow: 0 0 30px rgba(0,242,255,0.2);
+        }
+        .message {
+            margin: 12px 0; padding: 14px 20px; border-radius: 20px; max-width: 82%;
+            line-height: 1.6; word-wrap: break-word; animation: fadeIn 0.5s;
+        }
+        .assistant-message {
+            background: linear-gradient(135deg, rgba(0,242,255,0.25), rgba(142,45,226,0.2));
+            border: 1px solid var(--primary); color: #e0f8ff; margin-right: auto;
+        }
+        .user-message {
+            background: rgba(142,45,226,0.5); border: 1px solid var(--secondary);
+            color: white; margin-left: auto;
+        }
+        #orb {
+            width: 130px; height: 130px; background: radial-gradient(circle at 30% 30%, #00f2ff, #8e2de2);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; box-shadow: 0 0 50px rgba(0,242,255,0.9); transition: all 0.4s;
+            margin: 20px 0;
+        }
+        #orb i { font-size: 56px; color: white; }
+        #orb.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+        #orb.listening { animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0%,100% { transform: scale(1); box-shadow: 0 0 50px #00f2ff; }
+            50% { transform: scale(1.25); box-shadow: 0 0 100px #00f2ff, 0 0 120px #8e2de2; }
+        }
+        #status-text {
+            font-size: 1.5em; margin-top: 20px; text-shadow: 0 0 15px #00f2ff; min-height: 50px;
+        }
+
+        /* Admin Button */
+        #admin-btn {
+            position: fixed; bottom: 30px; right: 30px; z-index: 9999;
+            padding: 16px 32px; background: linear-gradient(45deg, #8e2de2, #4a00e0);
+            color: white; border: 2px solid #8e2de2; border-radius: 50px;
+            font-size: 18px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 0 40px rgba(142,45,226,0.8); opacity: 0; pointer-events: none;
+            transition: all 0.6s ease; display: flex; align-items: center; gap: 12px;
+        }
+        #admin-btn.visible { opacity: 1; pointer-events: auto; }
+
+        /* Database Modal */
+        #db-modal {
+            display: none; position: fixed; z-index: 10000; left: 0; top: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.95); backdrop-filter: blur(10px);
+            align-items: center; justify-content: center;
+        }
+        #db-modal.active { display: flex; }
+        .modal-content {
+            background: rgba(20,20,50,0.98); padding: 40px; border-radius: 20px;
+            border: 2px solid #00f2ff; box-shadow: 0 0 50px rgba(0,242,255,0.7);
+            max-width: 90%; max-height: 90%; overflow-y: auto; position: relative;
+        }
+        .modal-content h2 {
+            background: linear-gradient(90deg, #00f2ff, #8e2de2);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; font-size: 2em; text-align: center; margin-bottom: 20px;
+        }
+        #close-db {
+            position: absolute; top: 15px; right: 20px; font-size: 2.5em;
+            background: none; border: none; color: #00f2ff; cursor: pointer;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <canvas id="particle-canvas"></canvas>
+    <div class="container">
+        <div id="conversation-log"></div>
+        <div id="orb" class="disabled">
+            <i class="fas fa-microphone"></i>
+        </div>
+        <p id="status-text">Assistant is starting...</p>
+    </div>
+
+    <!-- Admin Button -->
+    <button id="admin-btn">
+        <i class="fas fa-database"></i> View All Appointments
+    </button>
+
+    <!-- CLEAN DATABASE MODAL -->
+    <div id="db-modal">
+        <div class="modal-content">
+            <button id="close-db">×</button>
+            
+            <div id="password-screen">
+                <h2>Admin Access Required</h2>
+                <p style="color: #00f2ff; margin: 20px 0; font-size: 1.2em;">
+                    Enter Database Password
+                </p>
+                <input type="password" id="admin-password" placeholder="••••••••••" 
+                       style="padding: 16px 20px; width: 300px; font-size: 1.3em; text-align: center;
+                              background: rgba(0,242,255,0.12); border: 2px solid #00f2ff; 
+                              border-radius: 50px; color: white; outline: none; margin: 10px;">
+                <br>
+                <button id="submit-password" style="margin-top: 15px; padding: 14px 40px; font-size: 1.2em;
+                        background: linear-gradient(45deg, #00f2ff, #8e2de2); border: none; border-radius: 50px;
+                        color: white; font-weight: bold; cursor: pointer;">
+                    Unlock & Download Database
+                </button>
+                <p id="password-error" style="color: #ff6b6b; margin-top: 15px; min-height: 28px; font-size: 1.1em;"></p>
+            </div>
+
+            <div id="database-content" style="display: none;">
+                <h2>All Appointments - Deewanshi Car Center</h2>
+                <div style="text-align: center; margin: 30px 0;">
+                    <button id="load-appointments" style="padding: 14px 36px; background: #00f2ff; color: black; 
+                            font-weight: bold; border: none; border-radius: 50px; font-size: 1.1em;">
+                        Load All Appointments
+                    </button>
+                </div>
+                <div id="appointments-container">
+                    <p style="color: #888; text-align: center; padding: 60px; line-height: 1.8;">
+                        <strong>Authentication successful!</strong><br><br>
+                        Database downloaded automatically.<br><br>
+                        Click the button above to view all appointments.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN SCRIPT (only once) -->
+    <script src="/static/js/script.js"></script>
+
+    <!-- THIS MAKES THE PURPLE BUTTON OPEN THE MODAL -->
+    <script>
+        document.getElementById('admin-btn').addEventListener('click', () => {
+            document.getElementById('db-modal').classList.add('active');
+            setTimeout(() => document.getElementById('admin-password')?.focus(), 300);
+        });
+    </script>
+</body>
+</html>
