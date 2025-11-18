@@ -1,4 +1,3 @@
-
 # app.py - DEEWANSHI CAR CENTER VOICE ASSISTANT - FULLY FIXED
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
@@ -6,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import dateparser
 import pyttsx3
+import os  # ADDED: For PORT environment variable
 
 app = Flask(__name__)
 CORS(app)  # Critical: Allows frontend to talk to backend
@@ -269,8 +269,9 @@ def appointments():
         return jsonify([])  # Return empty list if error
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))  # CHANGED: Use Render's PORT
     print("\n" + "="*60)
     print("   DEEWANSHI CAR CENTER VOICE ASSISTANT - NOW FULLY WORKING!")
-    print("   Open → http://127.0.0.1:5000")
+    print(f"   Running on port: {port}")  # CHANGED: Show actual port
     print("="*60 + "\n")
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=port, debug=False)  # CHANGED: Host, port, and debug
