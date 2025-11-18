@@ -269,9 +269,11 @@ def appointments():
         return jsonify([])  # Return empty list if error
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))  # CHANGED: Use Render's PORT
+    port = int(os.environ.get('PORT', 5000))
     print("\n" + "="*60)
     print("   DEEWANSHI CAR CENTER VOICE ASSISTANT - NOW FULLY WORKING!")
-    print(f"   Running on port: {port}")  # CHANGED: Show actual port
+    print(f"   Running on port: {port}")
     print("="*60 + "\n")
-    app.run(host='0.0.0.0', port=port, debug=False)  # CHANGED: Host, port, and debug
+    
+    # Explicitly bind to 0.0.0.0 with the port
+    app.run(host='0.0.0.0', port=port, debug=False)
