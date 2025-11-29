@@ -1,4 +1,4 @@
-# app.py - DEEWANSHI CAR CENTER – FINAL 100% FIXED (NO MORE "NO" BUG)
+# app.py - DEEWANSHI CAR CENTER – FINAL 100% FIXED (NO MORE "NOT CORRECT" BUG)
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -114,7 +114,7 @@ def listen():
         speak(text)
         messages.append(text)
 
-    lower = user_input.lower()
+    lower_words = user_input.lower().split()  # FIXED: Split into words for exact matching
 
     time_mapping = {
         "10": "10:00", "10am": "10:00", "10:00": "10:00", "ten": "10:00", "morning": "10:00",
@@ -123,7 +123,15 @@ def listen():
         "4pm": "16:00", "4 pm": "16:00", "16:00": "16:00", "four": "16:00", "evening": "16:00"
     }
 
-    # === ALL STAGES BELOW ARE NOW 100% SAFE FROM "NO" BUG ===
+    # Helper to check if positive confirmation
+    def is_positive(words):
+        positive = ["yes", "correct", "yeah", "ok", "right", "confirm"]
+        return any(p in words for p in positive)
+
+    # Helper to check if negative
+    def is_negative(words):
+        negative = ["no", "not", "wrong", "incorrect"]
+        return any(n in words for n in negative)
 
     if session.stage == "ask_name":
         session.user_name = user_input.strip().title()
@@ -131,7 +139,7 @@ def listen():
         session.stage = "confirm_name"
 
     elif session.stage == "confirm_name":
-        if "yes" in lower or "correct" in lower or "yeah" in lower or "ok" in lower or "right" in lower:
+        if is_positive(lower_words) and not is_negative(lower_words):
             say(f"Great! Thank you {session.user_name.split()[0]}.")
             say("How can I help you today? Say 'book appointment' or 'check car status'.")
             session.stage = "main_menu"
@@ -140,10 +148,10 @@ def listen():
             session.stage = "ask_name"
 
     elif session.stage == "main_menu":
-        if any(word in lower for word in ["book", "appointment", "service", "wash"]):
+        if any(word in lower_words for word in ["book", "appointment", "service", "wash"]):
             say("Please tell me your vehicle number.")
             session.stage = "get_vehicle"
-        elif any(word in lower for word in ["status", "check", "ready"]):
+        elif any(word in lower_words for word in ["status", "check", "ready"]):
             say("Please say your vehicle number to check status.")
             session.stage = "check_status"
         else:
@@ -159,7 +167,7 @@ def listen():
             session.stage = "confirm_vehicle"
 
     elif session.stage == "confirm_vehicle":
-        if "yes" in lower or "correct" in lower or "yeah" in lower:
+        if is_positive(lower_words) and not is_negative(lower_words):
             say("Vehicle confirmed!")
             say("What date would you like? For example: tomorrow, next Monday, or 5 December.")
             session.stage = "get_date"
@@ -178,19 +186,20 @@ def listen():
         session.stage = "confirm_date"
 
     elif session.stage == "confirm_date":
-        if "yes" in lower or "correct" in lower or "yeah" in lower or "ok" in lower or "right" in lower:
+        if is_positive(lower_words) and not is_negative(lower_words):
             nice_date = datetime.strptime(session.pref_date, "%Y-%m-%d").strftime("%d %B %Y")
             say(f"Date confirmed for {nice_date}!")
             say("What time do you prefer? We have 10 AM, 1 PM, or 4 PM.")
             session.stage = "get_time"
         else:
             say("Okay, please say the date again.")
-            session.stage = "get_date"   # ← FIXED: Now truly goes back on "No"
+            session.stage = "get_date"
 
     elif session.stage == "get_time":
         selected = None
+        lower_input = user_input.lower().replace("o'clock", "").replace(".", ":").strip()
         for k in time_mapping:
-            if k in lower:
+            if k in lower_input:
                 selected = time_mapping[k]
                 break
         if selected:
@@ -202,7 +211,7 @@ def listen():
             say("Please say only: 10 AM, 1 PM, or 4 PM.")
 
     elif session.stage == "confirm_time":
-        if "yes" in lower or "correct" in lower or "confirm" in lower or "yeah" in lower or "ok" in lower:
+        if is_positive(lower_words) and not is_negative(lower_words):
             date_slot, time_slot = find_next_slot(session.pref_date, session.pref_time)
             nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
             nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
@@ -221,7 +230,7 @@ def listen():
             session.stage = "get_time"
 
     elif session.stage == "final_ask":
-        if any(word in lower for word in ["no", "thanks", "bye", "nothing", "no thanks"]):
+        if is_negative(lower_words) or any(word in lower_words for word in ["thanks", "bye", "nothing"]):
             say(f"Thank you {session.user_name.split()[0]}! Have a wonderful day!")
             session.reset()
             return jsonify({"messages": messages, "done": True})
