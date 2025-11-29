@@ -1,8 +1,8 @@
-# app.py - DEEWANSHI CAR CENTER – FINAL 100% PERFECT (Works with "It's correct", "No it's not", etc.)
+# app.py - DEEWANSHI CAR CENTER – FINAL PROFESSIONAL VERSION
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 import dateparser
 import re
 import os
@@ -51,7 +51,7 @@ class Session:
 session = Session()
 
 def find_next_slot(date_str, preferred_time=None):
-    base = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'future'}) or datetime.now()
+    base = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'future', 'DATE_ORDER': 'DMY'}) or datetime.now()
     check_date = base.date()
     slots = ["10:00", "13:00", "16:00"]
 
@@ -68,8 +68,8 @@ def find_next_slot(date_str, preferred_time=None):
         for slot in slots:
             if slot not in booked:
                 return d_str, slot
-        check_date += timedelta(days=1)
-    return (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
+        check_date += datetime.timedelta(days=1)
+    return (datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
 
 def book_appointment(name, vehicle, date, time):
     conn = sqlite3.connect(DB_FILE)
@@ -115,14 +115,10 @@ def listen():
         speak(text)
         messages.append(text)
 
-    # PERFECT WORD CLEANING — handles "it's", "don't", punctuation, etc.
     def clean_words(text):
         text = text.lower()
         text = re.sub(r"\bit'?s\b", "it is", text)
-        text = re.sub(r"\bdon'?t\b", "do not", text)
-        text = re.sub(r"\bcan'?t\b", "cannot", text)
-        text = re.sub(r"\bwon'?t\b", "will not", text)
-        text = re.sub(r"[^\w\s]", " ", text)  # Remove punctuation
+        text = re.sub(r"[^\w\s]", " ", text)
         return text.split()
 
     words = clean_words(user_input)
@@ -167,23 +163,24 @@ def listen():
             say("I didn't catch that properly. Please say your vehicle number again.")
         else:
             session.vehicle_no = v
-            say(f"You said: {v}. Is this correct?")
+            say(f"You said {v}. Is this correct?")
             session.stage = "confirm_vehicle"
 
     elif session.stage == "confirm_vehicle":
         if is_positive(words) and not is_negative(words):
-            say("Vehicle confirmed!")
-            say("What date would you like? For example: tomorrow, next Monday, or 5 December.")
+            say(f"Your vehicle {session.vehicle_no} is confirmed!")
+            say("Please say the date in day month year format, for example: 5 December 2025")
             session.stage = "get_date"
         else:
             say("Please say your vehicle number again.")
             session.stage = "get_vehicle"
 
     elif session.stage == "get_date":
-        parsed = dateparser.parse(user_input, settings={'PREFER_DATES_FROM': 'future'})
+        parsed = dateparser.parse(user_input, settings={'PREFER_DATES_FROM': 'future', 'DATE_ORDER': 'DMY'})
         if not parsed:
-            say("Sorry, I didn't understand the date. Try saying tomorrow, next Monday, or 5 December.")
+            say("Please say the date in day month year format, for example: 5 December 2025 or 12 January")
             return jsonify({"messages": messages, "done": False})
+        
         session.pref_date = parsed.strftime("%Y-%m-%d")
         nice_date = parsed.strftime("%d %B %Y")
         say(f"You want {nice_date}. Is this correct?")
@@ -196,7 +193,7 @@ def listen():
             say("What time do you prefer? We have 10 AM, 1 PM, or 4 PM.")
             session.stage = "get_time"
         else:
-            say("Okay, please say the date again.")
+            say("Okay, please say the date again in day month year format.")
             session.stage = "get_date"
 
     elif session.stage == "get_time":
@@ -219,14 +216,17 @@ def listen():
             date_slot, time_slot = find_next_slot(session.pref_date, session.pref_time)
             nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
             nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+
             if time_slot != session.pref_time:
                 say(f"Your preferred time was taken, so I booked {nice_time} instead.")
+
             success = book_appointment(session.user_name, session.vehicle_no, date_slot, time_slot)
             if success:
-                say(f"Excellent! Your appointment is booked for {nice_date} at {nice_time}.")
-                say(f"We'll take good care of your {session.vehicle_no}. Thank you!")
+                say(f"Your {session.vehicle_no} is confirmed on {nice_date} at {nice_time}.")
+                say("We'll take good care of your car. Thank you!")
             else:
                 say("Sorry, this vehicle already has an appointment.")
+            
             say("Anything else I can help with?")
             session.stage = "final_ask"
         else:
@@ -234,7 +234,7 @@ def listen():
             session.stage = "get_time"
 
     elif session.stage == "final_ask":
-        if is_negative(words) or any(word in words for word in ["thanks", "bye", "nothing"]):
+        if is_negative(words) or any(word in words for word in ["thanks", "bye", "nothing", "no thanks"]):
             say(f"Thank you {session.user_name.split()[0]}! Have a wonderful day!")
             session.reset()
             return jsonify({"messages": messages, "done": True})
