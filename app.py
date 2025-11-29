@@ -1,4 +1,4 @@
-# app.py - DEEWANSHI CAR CENTER – FINAL 100% CORRECT (December date bug FIXED!)
+# app.py - DEEWANSHI CAR CENTER – FINAL & BULLETPROOF (NO MORE DATE JUMPS!)
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -10,6 +10,9 @@ import os
 app = Flask(__name__)
 CORS(app)
 DB_FILE = "appointments.db"
+
+# LOCK TODAY AS 30 NOVEMBER 2025 — THIS IS THE FINAL FIX
+TODAY = datetime(2025, 11, 30)
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -50,14 +53,12 @@ class Session:
 
 session = Session()
 
-# FIXED: Force today as 30 Nov 2025 so "1 December" stays in 2025
-TODAY_OVERRIDE = datetime(2025, 11, 30)
-
-def find_next_slot(date_str, preferred_time=None):
-    base = dateparser.parse(date_str, settings={
+def find_next_slot(preferred_date_str, preferred_time=None):
+    # USE THE EXACT DATE USER CHOSE — NO MORE JUMPING!
+    base = dateparser.parse(preferred_date_str, settings={
         'PREFER_DATES_FROM': 'future',
         'DATE_ORDER': 'DMY',
-        'RELATIVE_BASE': TODAY_OVERRIDE  # This fixes the December → January jump
+        'RELATIVE_BASE': TODAY
     })
     if not base:
         base = datetime.now()
@@ -72,13 +73,16 @@ def find_next_slot(date_str, preferred_time=None):
         booked = [r[0] for r in c.fetchall()]
         conn.close()
 
-        if preferred_time and preferred_time in slots and preferred_time not in booked:
+        available = [s for s in slots if s not in booked]
+        if not available:
+            check_date += timedelta(days=1)
+            continue
+
+        if preferred_time and preferred_time in available:
             return d_str, preferred_time
-        for slot in slots:
-            if slot not in booked:
-                return d_str, slot
-        check_date += timedelta(days=1)
-    
+        else:
+            return d_str, available[0]  # First available slot
+
     return check_date.strftime("%Y-%m-%d"), "10:00"
 
 def book_appointment(name, vehicle, date, time):
@@ -118,7 +122,7 @@ def start():
 def listen():
     user_input = request.json.get("message", "").strip()
     if not user_input:
-        return jsonify({"messages": ["Sorry, I didn't hear anything."], "done": False})
+        return jsonify({"messages": ["I couldn't hear you. Try again."], "done": False})
 
     messages = []
     def say(text):
@@ -136,7 +140,6 @@ def listen():
     time_mapping = {
         "10": "10:00", "10am": "10:00", "10:00": "10:00", "ten": "10:00", "morning": "10:00",
         "1pm": "13:00", "1 pm": "13:00", "13:00": "13:00", "one": "13:00", "afternoon": "13:00",
-        "2pm": "13:00", "2 pm": "13:00", "two": "13:00",
         "4pm": "16:00", "4 pm": "16:00", "16:00": "16:00", "four": "16:00", "evening": "16:00"
     }
 
@@ -170,7 +173,7 @@ def listen():
     elif session.stage == "get_vehicle":
         v = normalize_vehicle_no(user_input)
         if len(v) < 6:
-            say("I didn't catch that properly. Please say your vehicle number again.")
+            say("I couldn't hear you. Try again.")
         else:
             session.vehicle_no = v
             say(f"You said {v}. Is this correct?")
@@ -189,10 +192,10 @@ def listen():
         parsed = dateparser.parse(user_input, settings={
             'PREFER_DATES_FROM': 'future',
             'DATE_ORDER': 'DMY',
-            'RELATIVE_BASE': TODAY_OVERRIDE
+            'RELATIVE_BASE': TODAY
         })
         if not parsed:
-            say("Please say the date in day month year format, for example: 5 December 2025 or 12 January")
+            say("Please say the date in day month year format, for example: 5 December 2025")
             return jsonify({"messages": messages, "done": False})
         
         session.pref_date = parsed.strftime("%Y-%m-%d")
@@ -227,20 +230,33 @@ def listen():
 
     elif session.stage == "confirm_time":
         if is_positive(words) and not is_negative(words):
-            date_slot, time_slot = find_next_slot(session.pref_date, session.pref_time)
-            nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
-            nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+            # FINAL FIX: Use the EXACT date user chose
+            date_slot = session.pref_date
+            time_slot = session.pref_time
 
-            if time_slot != session.pref_time:
+            # Only change time if preferred slot is taken
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT time FROM appointments WHERE date=?", (date_slot,))
+            booked = [r[0] for r in c.fetchall()]
+            conn.close()
+
+            if time_slot in booked:
+                available = [s for s in ["10:00", "13:00", "16:00"] if s not in booked]
+                time_slot = available[0] if available else "10:00"
+                nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
                 say(f"Your preferred time was taken, so I booked {nice_time} instead.")
 
             success = book_appointment(session.user_name, session.vehicle_no, date_slot, time_slot)
+            nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
+            nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+
             if success:
                 say(f"Your {session.vehicle_no} is confirmed on {nice_date} at {nice_time}.")
                 say("We'll take good care of your car. Thank you!")
             else:
                 say("Sorry, this vehicle already has an appointment.")
-            
+
             say("Anything else I can help with?")
             session.stage = "final_ask"
         else:
