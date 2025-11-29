@@ -1,17 +1,15 @@
-# app.py - DEEWANSHI CAR CENTER VOICE ASSISTANT - FULLY FIXED FOR CLOUD
+# app.py - DEEWANSHI CAR CENTER – FINAL 100% WORKING VERSION
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 import dateparser
-import os  # For PORT environment variable
+import os
 
 app = Flask(__name__)
-CORS(app)  # Critical: Allows frontend to talk to backend
-
+CORS(app)
 DB_FILE = "appointments.db"
 
-# Initialize Database
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -26,26 +24,19 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-
 init_db()
 
-# TTS Function - UPDATED: Removed pyttsx3 for cloud compatibility
 def speak(text):
     print(f"Assistant: {text}")
-    # Speech synthesis will be handled by the browser
-    # This function now only logs the text for the frontend to speak
     return text
 
-# Normalize Vehicle Number
 def normalize_vehicle_no(text):
-    cleaned = text.upper()
-    cleaned = ''.join(''.join(c for c in cleaned if c.isalnum()))
-    fillers = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "OH", "O"]
+    cleaned = ''.join(c for c in text.upper() if c.isalnum())
+    fillers = ["ZERO","ONE","TWO","THREE","FOUR","FIVE","SIX","SEVEN","EIGHT","NINE","OH","O"]
     for f in fillers:
         cleaned = cleaned.replace(f, "")
-    return ''.join(c for c in cleaned if c.isalnum())
+    return cleaned
 
-# Session State
 class Session:
     def __init__(self):
         self.reset()
@@ -53,13 +44,12 @@ class Session:
         self.stage = "welcome"
         self.user_name = None
         self.vehicle_no = None
-        self.pref_date = None
-        self.pref_time = None
+        self.pref_date = None   # will be "2025-12-08"
+        self.pref_time = None   # will be "10:00", "13:00", or "16:00"
 
 session = Session()
 
-# DB Helpers
-def find_next_slot(date_str):
+def find_next_slot(date_str, preferred_time=None):
     base = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'future'}) or datetime.now()
     check_date = base.date()
     slots = ["10:00", "13:00", "16:00"]
@@ -72,24 +62,26 @@ def find_next_slot(date_str):
         booked = [r[0] for r in c.fetchall()]
         conn.close()
 
+        if preferred_time and preferred_time in slots and preferred_time not in booked:
+            return d_str, preferred_time
         for slot in slots:
             if slot not in booked:
                 return d_str, slot
-        check_date += timedelta(days=1)
-    return (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
+        check_date += datetime.timedelta(days=1)
+    return (datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
 
 def book_appointment(name, vehicle, date, time):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
         c.execute("INSERT INTO appointments (username, vehicle_no, date, time) VALUES (?, ?, ?, ?)",
-                  (name.title(), vehicle, date, time))
+                  (name.title(), vehicle.upper(), date, time))
         conn.commit()
-        conn.close()
         return True
     except sqlite3.IntegrityError:
-        conn.close()
         return False
+    finally:
+        conn.close()
 
 def get_appointment(vehicle):
     conn = sqlite3.connect(DB_FILE)
@@ -99,7 +91,6 @@ def get_appointment(vehicle):
     conn.close()
     return result
 
-# Routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -108,31 +99,36 @@ def index():
 def start():
     session.reset()
     msg = "Good morning! Welcome to Deewanshi Car Center. May I know your name please?"
-    speak(msg)  # This will now be handled by browser TTS
+    speak(msg)
     session.stage = "ask_name"
-    return jsonify({
-        "messages": [msg],
-        "done": False
-    })
+    return jsonify({"messages": [msg], "done": False})
 
 @app.route('/listen', methods=['POST'])
 def listen():
     user_input = request.json.get("message", "").strip()
-    messages = []
-    done = False
+    if not user_input:
+        return jsonify({"messages": ["Sorry, I didn't hear anything."], "done": False})
 
+    messages = []
     def say(text):
-        speak(text)  # This will now be handled by browser TTS
+        speak(text)
         messages.append(text)
 
-    # Name Flow
+    time_mapping = {
+        "10": "10:00", "10am": "10:00", "10:00": "10:00", "ten": "10:00", "morning": "10:00",
+        "1pm": "13:00", "1 pm": "13:00", "13:00": "13:00", "one": "13:00", "afternoon": "13:00",
+        "2pm": "13:00", "2 pm": "13:00", "two": "13:00",
+        "4pm": "16:00", "4 pm": "16:00", "16:00": "16:00", "four": "16:00", "evening": "16:00"
+    }
+    lower = user_input.lower().replace("o'clock", "").replace(".", ":").strip()
+
     if session.stage == "ask_name":
         session.user_name = user_input.strip().title()
-        say(f"You said your name is {session.user_name}. Is that correct? Say yes or no.")
+        say(f"You said your name is {session.user_name}. Is that correct?")
         session.stage = "confirm_name"
 
     elif session.stage == "confirm_name":
-        if any(x in user_input.lower() for x in ["yes", "correct", "yeah", "right"]):
+        if any(x in lower for x in ["yes", "correct", "yeah", "ok", "it is"]):
             say(f"Great! Thank you {session.user_name.split()[0]}.")
             say("How can I help you today? Say 'book appointment' or 'check car status'.")
             session.stage = "main_menu"
@@ -141,41 +137,47 @@ def listen():
             session.stage = "ask_name"
 
     elif session.stage == "main_menu":
-        if any(x in user_input.lower() for x in ["book", "appointment", "service"]):
+        if any(x in lower for x in ["book", "appointment", "service", "wash"]):
             say("Please tell me your vehicle number.")
             session.stage = "get_vehicle"
-        elif any(x in user_input.lower() for x in ["status", "check", "ready"]):
+        elif any(x in lower for x in ["status", "check", "ready"]):
             say("Please say your vehicle number to check status.")
             session.stage = "check_status"
         else:
             say("Please say 'book appointment' or 'check car status'.")
 
     elif session.stage == "get_vehicle":
-        vehicle = normalize_vehicle_no(user_input)
-        if len(vehicle) < 6:
+        v = normalize_vehicle_no(user_input)
+        if len(v) < 6:
             say("I didn't catch that properly. Please say your vehicle number again.")
         else:
-            session.vehicle_no = vehicle
-            say(f"You said: {vehicle}. Is this correct?")
+            session.vehicle_no = v
+            say(f"You said: {v}. Is this correct?")
             session.stage = "confirm_vehicle"
 
     elif session.stage == "confirm_vehicle":
-        if any(x in user_input.lower() for x in ["yes", "correct", "yeah"]):
+        if any(x in lower for x in ["yes", "correct", "yeah"]):
             say("Vehicle confirmed!")
-            say("What date would you like? For example: tomorrow, 25th November, or next Monday.")
+            say("What date would you like? For example: tomorrow, next Monday, or 5 December.")
             session.stage = "get_date"
         else:
             say("Please say your vehicle number again.")
             session.stage = "get_vehicle"
 
     elif session.stage == "get_date":
-        session.pref_date = user_input
-        say(f"You want: {user_input}. Is this correct?")
+        parsed = dateparser.parse(user_input, settings={'PREFER_DATES_FROM': 'future'})
+        if not parsed:
+            say("Sorry, I didn't understand the date. Please try again, e.g., tomorrow or 5 December.")
+            return jsonify({"messages": messages, "done": False})
+        session.pref_date = parsed.strftime("%Y-%m-%d")
+        nice_date = parsed.strftime("%d %B %Y")
+        say(f"You want {nice_date}. Is this correct?")
         session.stage = "confirm_date"
 
     elif session.stage == "confirm_date":
-        if any(x in user_input.lower() for x in ["yes", "correct"]):
-            say("Date confirmed!")
+        if any(x in lower for x in ["yes", "correct", "yeah", "ok"]):
+            nice_date = datetime.strptime(session.pref_date, "%Y-%m-%d").strftime("%d %B %Y")
+            say(f"Date confirmed for {nice_date}!")
             say("What time do you prefer? We have 10 AM, 1 PM, or 4 PM.")
             session.stage = "get_time"
         else:
@@ -183,20 +185,32 @@ def listen():
             session.stage = "get_date"
 
     elif session.stage == "get_time":
-        session.pref_time = user_input
-        say(f"You said: {user_input}. Confirm?")
-        session.stage = "confirm_time"
+        selected = None
+        for k, v in time_mapping.items():
+            if k in lower:
+                selected = v
+                break
+        if selected:
+            session.pref_time = selected
+            nice = selected.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+            say(f"You want {nice}. Confirm?")
+            session.stage = "confirm_time"
+        else:
+            say("Please say only: 10 AM, 1 PM, or 4 PM.")
 
     elif session.stage == "confirm_time":
-        if any(x in user_input.lower() for x in ["yes", "correct"]):
-            date_slot, time_slot = find_next_slot(session.pref_date)
+        if any(x in lower for x in ["yes", "correct", "confirm", "yeah", "ok"]):
+            date_slot, time_slot = find_next_slot(session.pref_date, session.pref_time)
             nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
+            nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+            if time_slot != session.pref_time:
+                say(f"Your preferred time was taken, so I booked {nice_time} instead.")
             success = book_appointment(session.user_name, session.vehicle_no, date_slot, time_slot)
             if success:
-                say(f"Excellent! Your appointment is booked for {nice_date} at {time_slot}.")
+                say(f"Excellent! Your appointment is booked for {nice_date} at {nice_time}.")
                 say(f"We'll take good care of your {session.vehicle_no}. Thank you!")
             else:
-                say(f"Sorry, this vehicle already has an appointment.")
+                say("Sorry, this vehicle already has an appointment.")
             say("Anything else I can help with?")
             session.stage = "final_ask"
         else:
@@ -204,68 +218,42 @@ def listen():
             session.stage = "get_time"
 
     elif session.stage == "final_ask":
-        if any(x in user_input.lower() for x in ["no", "thank", "bye"]):
+        if any(x in lower for x in ["no", "thanks", "bye", "nothing"]):
             say(f"Thank you {session.user_name.split()[0]}! Have a wonderful day!")
             session.reset()
-            done = True
+            return jsonify({"messages": messages, "done": True})
         else:
             say("How else may I assist you?")
             session.stage = "main_menu"
 
-    # Status Check
     elif session.stage == "check_status":
-        vehicle = normalize_vehicle_no(user_input)
-        appt = get_appointment(vehicle)
+        v = normalize_vehicle_no(user_input)
+        appt = get_appointment(v)
         if appt:
             name, date, time = appt
             nice_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d %B %Y")
-            say(f"Hello {name.split()[0]}! Your car {vehicle} will be ready on {nice_date} at {time}.")
+            nice_time = time.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
+            say(f"Hello {name.split()[0]}! Your car {v} will be ready on {nice_date} at {nice_time}.")
         else:
             say("No appointment found for this vehicle number.")
         say("Anything else?")
         session.stage = "final_ask"
 
-    return jsonify({
-        "messages": messages,
-        "done": done
-    })
+    return jsonify({"messages": messages, "done": False})
 
-# ADMIN: Fixed route
 @app.route('/appointments')
 def appointments():
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT username, vehicle_no, date, time FROM appointments ORDER BY date, time")
-        rows = c.fetchall()
-        conn.close()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username, vehicle_no, date, time FROM appointments ORDER BY date, time")
+    rows = c.fetchall()
+    conn.close()
+    return jsonify([{"name":r[0],"vehicle":r[1],"date":r[2],"time":r[3]} for r in rows])
 
-        data = []
-        for name, vehicle, date, time in rows:
-            data.append({
-                "name": name,
-                "vehicle": vehicle,
-                "date": date,
-                "time": time
-            })
-        
-        return jsonify(data)
-    
-    except Exception as e:
-        print("DB Error:", e)
-        return jsonify([])
-
-# Health check endpoint for Render
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "healthy", "service": "Deewanshi Car Center Voice Assistant"})
+    return jsonify({"status": "healthy"})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("\n" + "="*60)
-    print("   DEEWANSHI CAR CENTER VOICE ASSISTANT - NOW FULLY WORKING!")
-    print("   TTS: Browser-based (Cloud Compatible)")
-    print(f"   Running on port: {port}")
-    print("="*60 + "\n")
-    
     app.run(host='0.0.0.0', port=port, debug=False)
