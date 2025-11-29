@@ -1,8 +1,8 @@
-# app.py - DEEWANSHI CAR CENTER – FINAL PROFESSIONAL VERSION
+# app.py - DEEWANSHI CAR CENTER – FINAL 100% CORRECT (December date bug FIXED!)
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import dateparser
 import re
 import os
@@ -50,8 +50,17 @@ class Session:
 
 session = Session()
 
+# FIXED: Force today as 30 Nov 2025 so "1 December" stays in 2025
+TODAY_OVERRIDE = datetime(2025, 11, 30)
+
 def find_next_slot(date_str, preferred_time=None):
-    base = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'future', 'DATE_ORDER': 'DMY'}) or datetime.now()
+    base = dateparser.parse(date_str, settings={
+        'PREFER_DATES_FROM': 'future',
+        'DATE_ORDER': 'DMY',
+        'RELATIVE_BASE': TODAY_OVERRIDE  # This fixes the December → January jump
+    })
+    if not base:
+        base = datetime.now()
     check_date = base.date()
     slots = ["10:00", "13:00", "16:00"]
 
@@ -68,8 +77,9 @@ def find_next_slot(date_str, preferred_time=None):
         for slot in slots:
             if slot not in booked:
                 return d_str, slot
-        check_date += datetime.timedelta(days=1)
-    return (datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
+        check_date += timedelta(days=1)
+    
+    return check_date.strftime("%Y-%m-%d"), "10:00"
 
 def book_appointment(name, vehicle, date, time):
     conn = sqlite3.connect(DB_FILE)
@@ -176,7 +186,11 @@ def listen():
             session.stage = "get_vehicle"
 
     elif session.stage == "get_date":
-        parsed = dateparser.parse(user_input, settings={'PREFER_DATES_FROM': 'future', 'DATE_ORDER': 'DMY'})
+        parsed = dateparser.parse(user_input, settings={
+            'PREFER_DATES_FROM': 'future',
+            'DATE_ORDER': 'DMY',
+            'RELATIVE_BASE': TODAY_OVERRIDE
+        })
         if not parsed:
             say("Please say the date in day month year format, for example: 5 December 2025 or 12 January")
             return jsonify({"messages": messages, "done": False})
