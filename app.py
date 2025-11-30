@@ -1,4 +1,4 @@
-# app.py - DEEWANSHI CAR CENTER – FINAL & ERROR-FREE VERSION (Deploys on Render)
+# app.py - DEEWANSHI CAR CENTER – FINAL & FULLY FIXED VERSION
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -28,6 +28,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+
 init_db()
 
 def speak(text):
@@ -53,26 +54,23 @@ class Session:
 
 session = Session()
 
-# FIXED: Time mapping now accepts "1:00 PM" and "4:00 PM" perfectly
 time_mapping = {
     "10": "10:00", "10am": "10:00", "10:00": "10:00", "ten": "10:00", "morning": "10:00",
     "1pm": "13:00", "1 pm": "13:00", "1:00pm": "13:00", "1:00 pm": "13:00", "one": "13:00", "afternoon": "13:00",
     "4pm": "16:00", "4 pm": "16:00", "4:00pm": "16:00", "4:00 pm": "16:00", "four": "16:00", "evening": "16:00"
 }
 
-# FIXED: Date never changes – uses exact user date
+# FIXED: Never re-parse the date — we already have a clean YYYY-MM-DD string!
 def find_next_slot(preferred_date_str, preferred_time=None):
-    base = dateparser.parse(preferred_date_str, settings={
-        'PREFER_DATES_FROM': 'future',
-        'DATE_ORDER': 'DMY',
-        'RELATIVE_BASE': TODAY
-    })
-    if base is None:
-        base = datetime.now()
-    check_date = base.date()
-    slots = ["10:00", "13:00", "16:00"]
+    # CRITICAL FIX: Trust the stored YYYY-MM-DD string directly
+    try:
+        check_date = datetime.strptime(preferred_date_str, "%Y-%m-%d").date()
+    except:
+        check_date = TODAY.date()  # fallback to test date
 
-    for _ in range(30):
+    slots = ["10:00", "13:00", "16:00"]
+    
+    for _ in range(90):  # increased range for safety
         d_str = check_date.strftime("%Y-%m-%d")
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
@@ -80,19 +78,19 @@ def find_next_slot(preferred_date_str, preferred_time=None):
         booked = [r[0] for r in c.fetchall()]
         conn.close()
 
-        # Always try preferred time first
+        # Try user's preferred time first
         if preferred_time and preferred_time in slots and preferred_time not in booked:
             return d_str, preferred_time
 
-        # Else first available on same date
+        # Then any available slot that day
         for slot in slots:
             if slot not in booked:
                 return d_str, slot
 
-        # Only next day if all slots full
         check_date += timedelta(days=1)
 
-    return check_date.strftime("%Y-%m-%d"), "10:00"
+    # Final fallback
+    return (check_date + timedelta(days=1)).strftime("%Y-%m-%d"), "10:00"
 
 def book_appointment(name, vehicle, date, time):
     conn = sqlite3.connect(DB_FILE)
@@ -138,10 +136,8 @@ def listen():
         speak(text)
         messages.append(text)
 
-    # Clean words for yes/no
     clean_input = re.sub(r"[^\w\s]", " ", user_input.lower())
     words = clean_input.split()
-
     def is_positive(): return any(p in words for p in ["yes", "correct", "yeah", "ok", "right", "confirm", "it is"])
     def is_negative(): return any(n in words for n in ["no", "not", "wrong", "incorrect", "nope"])
 
@@ -229,21 +225,17 @@ def listen():
     elif session.stage == "confirm_time":
         if is_positive() and not is_negative():
             date_slot, time_slot = find_next_slot(session.pref_date, session.pref_time)
-
             if time_slot != session.pref_time:
                 nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
                 say(f"Your preferred time was taken, so I booked {nice_time} instead.")
-
             success = book_appointment(session.user_name, session.vehicle_no, date_slot, time_slot)
             nice_date = datetime.strptime(date_slot, "%Y-%m-%d").strftime("%d %B %Y")
             nice_time = time_slot.replace("10:00","10 AM").replace("13:00","1 PM").replace("16:00","4 PM")
-
             if success:
                 say(f"Your {session.vehicle_no} is confirmed on {nice_date} at {nice_time}.")
                 say("We'll take good care of your car. Thank you!")
             else:
                 say("Sorry, this vehicle already has an appointment.")
-
             say("Anything else I can help with?")
             session.stage = "final_ask"
         else:
